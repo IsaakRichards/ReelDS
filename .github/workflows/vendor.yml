@@ -1,0 +1,64 @@
+name: Vendor dependencies
+# Downloads portable Python + numpy + Pillow + ffmpeg for every platform into vendor/,
+# commits them, then checks the launchers on real Windows, Linux and macOS machines.
+on:
+  workflow_dispatch:
+    inputs:
+      python:
+        description: CPython minor version to bundle
+        default: "3.12"
+  push:
+    paths:
+      - reelds.sh
+      - reelds.cmd
+      - pc/**
+      - .github/workflows/vendor.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download runtimes and wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/fetch_vendor.py --python "${{ inputs.python }}"
+      - name: Commit vendor/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor
+          if git diff --cached --quiet; then echo "vendor/ unchanged"; exit 0; fi
+          git commit -m "Update bundled encoder dependencies"
+          git push
+
+  smoke:
+    needs: fetch
+    if: always() && (needs.fetch.result == 'success' || needs.fetch.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-14, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Is vendor/ populated?
+        id: chk
+        shell: bash
+        run: test -f vendor/linux-x64/VERSION && echo "ok=1" >> "$GITHUB_OUTPUT" || echo "vendor/ not fetched yet"
+      - name: Selftest (Windows)
+        if: runner.os == 'Windows' && steps.chk.outputs.ok
+        shell: cmd
+        run: reelds.cmd selftest
+      - name: Selftest (Linux / macOS)
+        if: runner.os != 'Windows' && steps.chk.outputs.ok
+        run: ./reelds.sh selftest

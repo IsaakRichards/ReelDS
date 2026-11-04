@@ -1,0 +1,6 @@
+ds/build/
+ds/*.nds
+ds/*.elf
+__pycache__/
+*.pyc
+.runtime/
