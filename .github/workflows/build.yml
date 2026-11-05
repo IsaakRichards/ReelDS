@@ -37,3 +37,41 @@ jobs:
               assert open("t/c.rgb", "rb").read() == py, v
           print("decoders match")
           EOF
+
+  # Every successful build of main replaces the "Latest build" release, so the newest
+  # reelds.nds is always one click away (no GitHub login, no zip, never expires):
+  #   https://github.com/<owner>/<repo>/releases/latest/download/reelds.nds
+  # Pushing a tag like v1.0 makes a permanent, numbered release instead.
+  release:
+    needs: [nds, codec-test]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reelds-nds
+      - name: Publish release
+        run: |
+          short="${GITHUB_SHA::7}"
+          when="$(date -u '+%Y-%m-%d %H:%M UTC')"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            gh release create "$tag" reelds.nds --title "ReelDS $tag" --generate-notes --latest
+          else
+            tag=latest-build
+            gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+            gh release create "$tag" reelds.nds --target "$GITHUB_SHA" --latest \
+              --title "Latest build ($short)" \
+              --notes "Built automatically from \`$short\` on $when.
+
+          Copy **reelds.nds** to your SD card and launch it from TWiLight Menu++ or Unlaunch.
+          Encode videos on your PC with the encoder in this repo (\`reelds.cmd\` / \`reelds.sh\`)."
+          fi

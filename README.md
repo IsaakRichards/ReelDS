@@ -75,16 +75,19 @@ Check results on the PC before copying:
 Typical sizes: talking-head / animation ~100–200 KB/s, busy live action 300–600 KB/s,
 plus 64 KB/s audio at 32768 Hz (32 KB/s at 16384). A 90-minute film is roughly 0.8–2 GB.
 
-## 2. Build the DSi app
+## 2. Get the DSi app
 
-Install [BlocksDS](https://blocksds.skylyrac.net/docs/setup/) then:
+**Just download it:** every push to `main` is built automatically and published as the
+**[Latest build](../../releases/latest)** release:
+[**reelds.nds**](../../releases/latest/download/reelds.nds). Pushing a tag like `v1.0`
+makes a permanent numbered release instead. (`.github/workflows/build.yml` builds it in the
+official BlocksDS container and only publishes when the codec test passes too.)
+
+To build it yourself, install [BlocksDS](https://blocksds.skylyrac.net/docs/setup/) then:
 
 ```
 cd ds && make            # -> reelds.nds
 ```
-
-Or push to GitHub: `.github/workflows/build.yml` builds `reelds.nds` in the official
-BlocksDS container and uploads it as an artifact (it also runs the codec test).
 
 Copy `reelds.nds` anywhere on the SD card and launch it from TWiLight Menu++ / Unlaunch /
 hiyaCFW in DSi mode (it also runs from a DS flashcart via `fat:/`, at lower CPU speed).
