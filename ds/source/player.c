@@ -393,6 +393,7 @@ u32 player_run(int item, u32 start_ms, bool *finished_out)
     u32 last_osd_sec = 0xFFFFFFFF;
     u32 escape_since = 0;
     bool escape_armed = false;
+    bool lid_closed = false;
 
     if (!seek_to_kf(kf_find(start_frame), false))
         goto out;
@@ -403,6 +404,29 @@ u32 player_run(int item, u32 start_ms, bool *finished_out)
         u32 down = keysDown();
         u32 rep = keysDownRepeat();
         bool redraw = false;
+
+        // Lid: libnds puts the DSi to sleep a few frames after the lid closes and reports
+        // KEY_LID as held until then. Pause on the first of those frames, so the DSi sleeps
+        // with playback stopped cleanly; after opening it stays paused (A resumes, which
+        // also works with the buttons lock) and the bottom screen shows the pause symbol.
+        if (keysHeld() & KEY_LID) {
+            if (!lid_closed) {
+                lid_closed = true;
+                if (!paused) {
+                    P.base_sample = clock_sample();
+                    audio_stop();
+                    paused = true;
+                }
+            }
+        } else if (lid_closed) {
+            lid_closed = false;
+            powerOn(PM_BACKLIGHT_BOTTOM);
+            screen_on = true;
+            osd_deadline = g_vbl_count + OSD_FRAMES;
+            redraw = true;
+        }
+        down &= ~KEY_LID;
+        rep &= ~KEY_LID;
 
         if (g_settings.lock_touch) {
             down &= ~KEY_TOUCH;

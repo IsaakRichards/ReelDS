@@ -101,6 +101,8 @@ SD:/reelds/resume.bin            written by the DSi (resume points)
 ## Controls
 
 **Browser** – D-pad move · L/R jump · A/START or tap twice play / open show · B back · SELECT exit
+Closing the lid while a video plays pauses it and the DSi sleeps; open it and press A to carry on.
+
 **Playing** – A/START pause · ◀▶ ±10 s · L/R ±1 min · ▲▼ volume · B back (position saved) ·
 SELECT or tap = bottom screen on/off (it also switches off by itself after 5 s to save battery)
 
@@ -151,7 +153,6 @@ u16 mask). Missing trailing ops mean "skip". Keyframe table `{u32 frame, u32 off
 * **The PC side and the codec are tested** (C decoder, Python decoder and the encoder's own
   reconstruction agree bit-for-bit). The DSi app builds cleanly with BlocksDS (see the Actions
   tab for `reelds.nds`) **but has not been run on real hardware yet**.
-* Closing the lid during playback lets the system sleep; on wake press A twice to resync.
 * Mono audio only. Each `.rdv` must stay under 2 GB (the encoder refuses beyond that).
 * Palettes change at scene cuts; very colourful long scenes can band a little — try
   `--quality high` or a higher `--dither`.
