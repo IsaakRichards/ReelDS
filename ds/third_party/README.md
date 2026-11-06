@@ -1,8 +1,8 @@
 # Third-party code used to start games
 
 ReelDS boots games and homebrew with the same two pieces the NDS Homebrew Menu and
-TWiLight Menu++ use. Both are **GPL-2.0-or-later** (see `COPYING.GPL-2.0`), so a
-`reelds.nds` built with them must be distributed under GPL-compatible terms.
+TWiLight Menu++ use. Both are **GPL-2.0-or-later** (see `COPYING.GPL-2.0`); ReelDS as a whole is
+GPL-3.0-or-later (see the repository's `LICENSE` and `THIRD_PARTY_NOTICES.md`).
 
 | file | what | source |
 |---|---|---|
