@@ -39,6 +39,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import games as G  # noqa: E402  (pc/games.py)
+
 # --------------------------------------------------------------------------------------
 # constants shared with the DS side (keep in sync with source/*.h)
 # --------------------------------------------------------------------------------------
@@ -52,12 +55,13 @@ DIGIT_W, DIGIT_H = 6, 11
 FRAME_KEY = 1
 FRAME_PAL = 2
 RDV_HEADER = struct.Struct("<4sHHHH7I6I")  # 64 bytes
-CAT_VERSION = 3
+CAT_VERSION = 4
 CAT_HEADER = struct.Struct("<4sHHHH12I")   # 60 bytes
 CAT_PAGE = struct.Struct("<3I4H")           # 20 bytes: header, tile, hero, first_row, n_rows, n_eps, pad
 CAT_ROW = struct.Struct("<IHH")             # 8 bytes: label, first_entry, count
 ENTRY_PAGE = 0x8000                         # entry value flag: opens a page instead of playing
-CAT_ITEM = struct.Struct("<12s7I")          # 40 bytes
+CAT_ITEM = struct.Struct("<12s10I")         # 52 bytes: id, thumb, hero, panel, frames, fps n/d,
+                                            #   duration, path (games), kind, save size
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".mpg", ".mpeg", ".ts",
               ".m2ts", ".wmv", ".flv", ".ogv", ".3gp", ".divx", ".vob"}
@@ -948,11 +952,14 @@ def row_name(folder: Path, root: Path):
     return root.name if rel in ("", ".") else rel.replace("/", " - ")
 
 
-SETTINGS_KEYS = {"autoplay": True, "lock_buttons": False, "lock_touch": False, "shuffle_tile": True}
+SETTINGS_KEYS = {"autoplay": True, "lock_buttons": False, "lock_touch": False, "shuffle_tile": True,
+                 "show_games": True}
+SETTINGS_STR = {"reelds_path": ""}   # where reelds.nds lives (games' "Quit" comes back to it)
 
 
 def read_settings(sd) -> dict:
     cfg = dict(SETTINGS_KEYS)
+    cfg.update(SETTINGS_STR)
     f = Path(sd) / "reelds" / "settings.ini"
     if f.exists():
         for ln in f.read_text(errors="replace").splitlines():
@@ -960,6 +967,8 @@ def read_settings(sd) -> dict:
             k = k.strip().lower()
             if k in cfg:
                 cfg[k] = v.strip().lower() in ("1", "on", "yes", "true")
+            elif k in SETTINGS_STR:
+                cfg[k] = v.strip()
     return cfg
 
 
@@ -967,6 +976,7 @@ def write_settings(sd, **changes) -> dict:
     """settings.ini on the SD card is read by the DSi at startup (no rebuild needed)."""
     cfg = read_settings(sd)
     cfg.update({k: bool(v) for k, v in changes.items() if v is not None and k in SETTINGS_KEYS})
+    cfg.update({k: str(v) for k, v in changes.items() if v is not None and k in SETTINGS_STR})
     d = Path(sd) / "reelds"
     d.mkdir(parents=True, exist_ok=True)
     (d / "settings.ini").write_text(
@@ -975,12 +985,63 @@ def write_settings(sd, **changes) -> dict:
         "# lock_buttons: during playback only A (play/pause) works; hold START+SELECT for 4 s to leave\n"
         "# lock_touch:   during playback the touchscreen does nothing\n"
         "# shuffle_tile: show a Shuffle tile that plays random videos (random episodes inside a show)\n"
-        + "".join(f"{k}={int(v)}\n" for k, v in cfg.items()))
+        "# show_games:   show the Games row(s)\n"
+        "# reelds_path:  where reelds.nds is on the card; quitting a game comes back to it\n"
+        + "".join(f"{k}={v if isinstance(v, str) else int(v)}\n" for k, v in cfg.items()))
     return cfg
 
 
 def natural_key(s):
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+
+def find_reelds_nds(sd: Path) -> str:
+    """Locate reelds.nds on the card so a game's Quit can come back to it."""
+    cands = []
+    for d in (sd, sd / "_nds", sd / "roms" / "nds", sd / "roms", sd / "homebrew"):
+        if d.is_dir():
+            cands += [p for p in d.iterdir() if p.suffix.lower() == ".nds" and "reelds" in p.name.lower()]
+    return G.ds_path(cands[0], sd) if cands else ""
+
+
+def scan_games(roots, sd_root: Path):
+    """Every .nds under the game folders -> catalog entries (copied to the card if needed)."""
+    out, seen = [], set()
+    for root in roots:
+        root = Path(root).resolve()
+        if not root.exists():
+            log(f"  !! game folder not found: {root}")
+            continue
+        files = [root] if root.is_file() else sorted(root.rglob("*"), key=lambda p: natural_key(str(p)))
+        for p in files:
+            if p.suffix.lower() not in G.GAME_EXTS or not p.is_file() or p.name.startswith("."):
+                continue
+            if "reelds" in p.name.lower() or "saves" in p.relative_to(root).parts[:-1]:
+                continue            # don't list ourselves, never look inside saves folders
+            try:
+                rom = G.read_rom(p)
+            except (OSError, ValueError) as exc:
+                log(f"  !! skipped {p.name}: {exc}")
+                continue
+            if rom["dsiware"]:
+                log(f"  skipped {p.name}: DSiWare isn't supported")
+                continue
+            on_card = G.place_on_card(p, root if root.is_dir() else root.parent, sd_root)
+            ds = G.ds_path(on_card, sd_root)
+            if ds.lower() in seen:
+                continue
+            seen.add(ds.lower())
+            rel = p.parent.relative_to(root).as_posix() if root.is_dir() else "."
+            size = 0 if rom["homebrew"] else G.save_size_for(rom["code"])
+            if G.ensure_save(on_card, size):
+                log(f"  created save for {rom['name']} ({size // 1024} KB)")
+            art_p = G.find_boxart(p, sd_root, rom["code"]) or G.find_boxart(on_card, sd_root, rom["code"])
+            out.append({"id": G.game_id(ds), "kind": G.KIND_HOMEBREW if rom["homebrew"] else G.KIND_RETAIL,
+                        "path": p, "on_card": on_card, "ds_path": ds, "rom": rom,
+                        "title": rom["name"], "save_size": size, "show": None, "season": None,
+                        "category": "Games" if rel in ("", ".") else rel.replace("/", " - "),
+                        "art": Image.open(art_p).convert("RGB") if art_p else None})
+    return out
 
 
 def cmd_build(a):
@@ -998,8 +1059,14 @@ def cmd_build(a):
                 "keyint": a.keyint, "max_rate": a.max_rate}
     skey = json.dumps([ENCODER_VERSION, settings], sort_keys=True)
 
+    sd_root = Path(a.out).resolve()
+    game_entries = scan_games(a.games or [], sd_root)
+    if game_entries:
+        n_hb = sum(1 for g in game_entries if g["kind"] == G.KIND_HOMEBREW)
+        log(f"found {len(game_entries)} game(s) ({n_hb} homebrew)")
+
     entries = []
-    files = scan_library(a.library)
+    files = scan_library(a.library or [])
     shows = find_series(files)
     for root, p in files:
         rel = p.relative_to(root)
@@ -1014,9 +1081,10 @@ def cmd_build(a):
         stat = p.stat()
         entries.append({"id": vid, "path": p, "category": category, "show": show, "season": season,
                         "sig": [stat.st_size, int(stat.st_mtime), skey]})
-    if not entries:
-        sys.exit("no videos found")
-    log(f"found {len(entries)} video(s)")
+    if not entries and not game_entries:
+        sys.exit("no videos or games found")
+    if entries:
+        log(f"found {len(entries)} video(s)")
 
     jobs = []
     for e in entries:
@@ -1047,7 +1115,7 @@ def cmd_build(a):
                 manifest[e["id"]] = {"sig": e["sig"], "tech": tech, "src": str(e["path"])}
                 man_path.write_text(json.dumps(manifest, indent=1))
     entries = [e for e in entries if not e.get("failed") and "tech" in e]
-    if not entries:
+    if not entries and not game_entries:
         sys.exit("nothing encoded successfully; catalog not written")
 
     # ---- metadata + artwork ----
@@ -1068,12 +1136,18 @@ def cmd_build(a):
             art_p = cache / f"{e['id']}.png"
         e["art"] = Image.open(art_p).convert("RGB")
 
-    pages = build_pages(entries)
+    pages = build_pages(entries + game_entries)
     write_catalog(out_root / "catalog.bin", pages, fonts)
     onoff = lambda v: None if v is None else v == "on"
     cfg = write_settings(a.out, autoplay=onoff(a.autoplay), lock_buttons=onoff(a.lock_buttons),
-                         lock_touch=onoff(a.lock_touch), shuffle_tile=onoff(a.shuffle))
-    log("settings: " + ", ".join(f"{k}={'on' if v else 'off'}" for k, v in cfg.items()))
+                         lock_touch=onoff(a.lock_touch), shuffle_tile=onoff(a.shuffle),
+                         show_games=onoff(a.show_games),
+                         reelds_path=find_reelds_nds(sd_root) or None)
+    if game_entries and not cfg["reelds_path"]:
+        log("note: reelds.nds isn't on the card yet - copy it to the card root and build again, "
+            "so quitting a game comes back to ReelDS")
+    log("settings: " + ", ".join(f"{k}={v if isinstance(v, str) else ('on' if v else 'off')}"
+                                 for k, v in cfg.items()))
 
     if a.prune:
         keep = {e["id"] for e in entries}
@@ -1081,9 +1155,17 @@ def cmd_build(a):
             if f.suffix in (".rdv", ".rda") and f.stem not in keep:
                 f.unlink()
                 log(f"  pruned {f.name}")
+        # copies of games made by earlier builds (saves are never touched)
+        gdir = out_root / "games"
+        keep_g = {g["on_card"].resolve() for g in game_entries}
+        if gdir.is_dir():
+            for f in gdir.rglob("*"):
+                if f.suffix.lower() in G.GAME_EXTS and f.is_file() and f.resolve() not in keep_g:
+                    f.unlink()
+                    log(f"  pruned {f.relative_to(out_root)}")
     total = sum(f.stat().st_size for f in vid_dir.iterdir() if f.is_file())
     log(f"catalog: {len(pages[0]['rows'])} row(s), {len(pages) - 1} show(s), {len(entries)} video(s), "
-        f"{total / 2**20:.0f} MB in {vid_dir}")
+        f"{len(game_entries)} game(s), {total / 2**20:.0f} MB in {vid_dir}")
 
 
 def build_pages(entries):
@@ -1132,8 +1214,9 @@ def build_pages(entries):
                     break
             e["tile_title"] = short
             e["meta_prefix"] = "" if e["season"] == "Episodes" else e["season"]
+    game_rows = {e["category"] for e in entries if e.get("kind", 0) != G.KIND_VIDEO}
     pages[0] = {"title": None, "rows": [(c, [x for _, x in sorted(home[c], key=lambda t: t[0])])
-                                        for c in sorted(home, key=natural_key)]}
+                                        for c in sorted(home, key=lambda c: (c in game_rows, natural_key(c)))]}
     return pages
 
 
@@ -1161,6 +1244,13 @@ def write_catalog(path: Path, pages, fonts):
     item_index, item_recs = {}, []
 
     def item(e):
+        if e["id"] not in item_index and e.get("kind", 0) != G.KIND_VIDEO:
+            th = img(G.render_game_tile(e["rom"], e["art"], fonts, TILE_W, TILE_H, shadow_text, ellipsize))
+            he = img(G.render_game_hero(e["rom"], e["art"], fonts, SCREEN_W, SCREEN_H, RED, GREY,
+                                        shadow_text, ellipsize, wrap))
+            po = add_blob(e["ds_path"].encode("utf-8") + b"\0")
+            item_index[e["id"]] = len(item_recs)
+            item_recs.append((e["id"].encode(), th, he, None, 0, 0, 0, 0, po, e["kind"], e["save_size"]))
         if e["id"] not in item_index:
             t = e["tech"]
             where = e["meta_prefix"] if "meta_prefix" in e else e["category"]
@@ -1170,7 +1260,7 @@ def write_catalog(path: Path, pages, fonts):
             pa = img(render_panel(e["art"], e["title"], meta, e["desc"], fonts))
             item_index[e["id"]] = len(item_recs)
             item_recs.append((e["id"].encode(), th, he, pa, t["frames"], t["fps_num"], t["fps_den"],
-                              int(round(t["duration"]))))
+                              int(round(t["duration"])), None, G.KIND_VIDEO, 0))
         return item_index[e["id"]]
 
     page_recs, row_recs, entry_vals = [], [], []
@@ -1210,8 +1300,9 @@ def write_catalog(path: Path, pages, fonts):
         out += CAT_ROW.pack(base + lab, first, cnt)
     out += struct.pack(f"<{len(entry_vals)}H", *entry_vals)
     out += b"\0" * (off_items - len(out))
-    for rid, th, he, pa, fr, fn, fd, dur in item_recs:
-        out += CAT_ITEM.pack(rid, base + th, base + he, base + pa, fr, fn, fd, dur)
+    for rid, th, he, pa, fr, fn, fd, dur, po, kind, sav in item_recs:
+        out += CAT_ITEM.pack(rid, base + th, base + he, base + pa if pa is not None else 0, fr, fn, fd, dur,
+                             base + po if po is not None else 0, kind, sav)
     out += blobs
     tmp = path.with_suffix(".tmp")
     tmp.write_bytes(out)
@@ -1346,8 +1437,11 @@ def render_mock(sd, page=0, row=0, col=0, scale=2) -> Image.Image:
     if shuffle_on and rows:
         rows.insert(0, (c["shuffle"][2], [SHUF]))
     sel = None
-    for r, (lab, ents) in enumerate(rows[:3]):
-        y = HEADER_H + r * 57
+    top = max(0, min(row, len(rows) - 3))          # scrolls like the DSi does
+    for r, (lab, ents) in enumerate(rows):
+        if r < top or r >= top + 3:
+            continue
+        y = HEADER_H + (r - top) * 57
         blit(bot, 8, y, img(lab), HEADER_H)
         for k, v in enumerate(ents):
             x = 8 + k * 78
@@ -1389,7 +1483,8 @@ def cmd_selftest(a):
                                 quality="normal", fps=30, max_rate=600, audio_rate=32768, dither=6.0,
                                 keyint=5.0, jobs=1, font=None, font_bold=None, no_audio_boost=False,
                                 no_deinterlace=False, force=False, prune=False, autoplay=None,
-                                lock_buttons=None, lock_touch=None, shuffle=None)
+                                lock_buttons=None, lock_touch=None, shuffle=None, games=None,
+                                show_games=None)
         cmd_build(ns)
         vids = list((td / "sd" / "reelds" / "videos").glob("*.rdv"))
         n = sum(1 for _ in iter_decoded(vids[0]))
@@ -1403,7 +1498,9 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
 
     b = sub.add_parser("build", help="encode a library and write the SD card layout")
-    b.add_argument("library", nargs="+", help="folders (or files); sub-folders become rows")
+    b.add_argument("library", nargs="*", help="video folders (or files); sub-folders become rows")
+    b.add_argument("--games", nargs="+", metavar="FOLDER",
+                   help="folders of .nds games/homebrew (on the card, or copied to reelds/games/)")
     b.add_argument("--out", required=True, help="SD card root (creates <out>/reelds/)")
     b.add_argument("--quality", choices=QUALITY, default="normal")
     b.add_argument("--fps", type=float, default=30, help="frame-rate cap (default 30)")
@@ -1425,6 +1522,7 @@ def main():
     b.add_argument("--lock-buttons", choices=("on", "off"), help="only A works during playback")
     b.add_argument("--lock-touch", choices=("on", "off"), help="touchscreen ignored during playback")
     b.add_argument("--shuffle", choices=("on", "off"), help="show the Shuffle tile (default on)")
+    b.add_argument("--show-games", choices=("on", "off"), help="show the Games row(s) (default on)")
     b.set_defaults(func=cmd_build)
 
     p = sub.add_parser("preview", help="render an .rdv to mp4 exactly as the DSi decodes it")

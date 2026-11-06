@@ -4,7 +4,7 @@
 #include "settings.h"
 
 Settings g_settings = { .autoplay = true, .lock_buttons = false, .lock_touch = false,
-                        .shuffle_tile = true };
+                        .shuffle_tile = true, .show_games = true, .reelds_path = "" };
 
 static bool truthy(const char *v)
 {
@@ -16,7 +16,7 @@ static bool truthy(const char *v)
 
 void settings_load(void)
 {
-    char path[64], line[96];
+    char path[64], line[160];
     snprintf(path, sizeof path, "%s/settings.ini", g_root);
     FILE *f = fopen(path, "r");
     if (!f)
@@ -41,6 +41,20 @@ void settings_load(void)
             g_settings.lock_touch = v;
         else if (!strcmp(k, "shuffle_tile"))
             g_settings.shuffle_tile = v;
+        else if (!strcmp(k, "show_games"))
+            g_settings.show_games = v;
+        else if (!strcmp(k, "reelds_path")) {
+            char *val = eq + 1;
+            while (*val == ' ' || *val == '\t')
+                val++;
+            size_t vn = strcspn(val, "\r\n");
+            while (vn && (val[vn - 1] == ' ' || val[vn - 1] == '\t'))
+                vn--;
+            if (vn < sizeof g_settings.reelds_path) {
+                memcpy(g_settings.reelds_path, val, vn);
+                g_settings.reelds_path[vn] = 0;
+            }
+        }
     }
     fclose(f);
 }

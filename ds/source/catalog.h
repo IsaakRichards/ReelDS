@@ -3,8 +3,8 @@
 
 #include "common.h"
 
-// On-disk records (little endian, written by pc/reelds.py, catalog version 3)
-#define CAT_VERSION 3
+// On-disk records (little endian, written by pc/reelds.py, catalog version 4)
+#define CAT_VERSION 4
 #define ENTRY_PAGE  0x8000      // entry flag: opens page (entry & 0x7FFF) instead of playing
 #define HOME_PAGE   0
 
@@ -33,11 +33,18 @@ typedef struct {
     u16 first, count;           // range in the entry table
 } CatRow;                       // 8 bytes
 
+#define ITEM_VIDEO    0
+#define ITEM_RETAIL   1         // DS game, started through nds-bootstrap
+#define ITEM_HOMEBREW 2         // homebrew .nds, booted directly
+
 typedef struct {
     char id[12];                // 8 hex chars, NUL padded -> videos/<id>.rdv / .rda
     u32 thumb_off, hero_off, panel_off;
     u32 frames, fps_num, fps_den, duration;   // duration in seconds
-} CatItem;                      // 40 bytes
+    u32 path_off;               // games: NUL-terminated "sd:/..." path of the .nds
+    u32 kind;                   // ITEM_*
+    u32 save_size;              // retail games: save file size in bytes
+} CatItem;                      // 52 bytes
 
 typedef struct {
     u16 w, h;
@@ -72,6 +79,8 @@ const Img *catalog_entry_tile(u16 entry);
 u32 catalog_entry_hero(u16 entry);
 
 int catalog_next_item(int item);    // next episode for autoplay, or -1
+bool catalog_is_video(int item);
+bool catalog_item_path(int item, char *buf, size_t len);   // games only
 u32 item_key(int item);
 int item_by_key(u32 key);
 

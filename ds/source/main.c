@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "browser.h"
+#include "launch.h"
 #include "catalog.h"
 #include "common.h"
 #include "player.h"
@@ -56,8 +57,10 @@ static bool find_root(void)
     return false;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    if (argc > 0 && argv && argv[0])
+        snprintf(g_self_path, sizeof g_self_path, "%s", argv[0]);
     if (isDSiMode())
         setCpuClock(true);      // 134 MHz
     irqSet(IRQ_VBLANK, on_vblank);

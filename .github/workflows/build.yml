@@ -4,11 +4,41 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The bootloader + bootstub that ReelDS uses to start games are built from source with
+  # devkitARM (the toolchain they're written for), then embedded by the BlocksDS build.
+  loader:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    env:
+      LOADER_COMMIT: a0f819008a63f28c4994e7cc8a8ace892450bbb5   # devkitPro/nds-bootloader
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build load.bin and bootstub.bin
+        run: |
+          export PATH="$DEVKITARM/bin:$PATH"
+          mkdir -p ds/data
+          git clone -q https://github.com/devkitPro/nds-bootloader /tmp/nds-bootloader
+          git -C /tmp/nds-bootloader checkout -q "$LOADER_COMMIT"
+          make -C /tmp/nds-bootloader LOADBIN="$GITHUB_WORKSPACE/ds/data/load.bin"
+          cd ds/third_party/bootstub
+          arm-none-eabi-gcc -Wl,-Ttext=0 -x assembler-with-cpp -nostartfiles -nostdlib bootstub.s -o bootstub.elf
+          arm-none-eabi-objcopy -O binary bootstub.elf "$GITHUB_WORKSPACE/ds/data/bootstub.bin"
+          ls -l "$GITHUB_WORKSPACE/ds/data"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: loader-bins
+          path: ds/data/*.bin
+
   nds:
+    needs: loader
     runs-on: ubuntu-latest
     container: skylyrac/blocksds:slim-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: loader-bins
+          path: ds/data
       - name: Build reelds.nds
         run: make -C ds
       - uses: actions/upload-artifact@v4

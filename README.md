@@ -117,12 +117,35 @@ rebuild) and the DSi reads them when ReelDS starts:
 | autoplay | on | when an episode ends by itself the next one starts (S01E03 → S02E01 inside a show; films and folders stop at the end of their row). Pressing B stops the chain. |
 | lock_buttons | off | while playing, **only A (play/pause) works**. Grown-ups: **hold START + SELECT for 4 seconds** to get back to the menu. |
 | lock_touch | off | while playing, the touchscreen does nothing. |
+| show_games | on | show the Games row(s). |
 | shuffle_tile | on | a **"Can't decide?" → Shuffle** tile at the top of the menu plays random videos; on a show's page it plays random episodes of that show. It deals from a shuffled deck, so nothing repeats until everything has played, and with autoplay on it keeps picking. |
 
 The locks only apply during playback, so the menu still works for picking a show.
 
 Partially watched titles get a progress bar and show up in a **Continue Watching** row.
 Opening a show jumps to the episode you watched last.
+
+## Games (experimental)
+
+ReelDS can also start DS games and homebrew, so one menu covers shows, movies and games.
+
+* In the PC app add a folder under **Games** (or `build … --games <folder>`). Folders already on
+  the SD card (e.g. `roms/nds`) are used in place; folders on your PC are copied to
+  `reelds/games/`. Each folder becomes a **Games** row after the video rows; sub-folders become
+  their own rows.
+* Titles, publisher and the icon come from each ROM. Box art is used when there's an image with
+  the same name next to the ROM, or in TWiLight Menu++'s `_nds/TWiLightMenu/boxart/` folder.
+* **Homebrew** starts directly. **DS games** start through **nds-bootstrap**, so
+  **TWiLight Menu++ must be installed on the card** (it provides `_nds/nds-bootstrap-release.nds`).
+  Saves go where TWiLight puts them (`<rom folder>/saves/<name>.sav`), so they're shared with
+  TWiLight; save files are created at the right size for each game.
+* **Getting back:** in a DS game press **L + Down + SELECT** for nds-bootstrap's menu and pick
+  **Quit** - it returns to ReelDS. (ReelDS finds `reelds.nds` on the card when you build; keep it
+  in the card's root.) Homebrew returns however that app exits.
+* The kid locks apply to videos only; once a game is running it has its own controls. Untick
+  **Show games** to hide the rows.
+* Not supported: DSiWare, GBA. Games are started with the same bootloader the Homebrew Menu and
+  TWiLight use - see `ds/third_party/README.md` (GPL-2.0+).
 
 ## How it stays light
 

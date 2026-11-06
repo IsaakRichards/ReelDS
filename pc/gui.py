@@ -57,7 +57,7 @@ class App:
         self.cancelled = False
 
         root.title("ReelDS")
-        root.minsize(560, 670)
+        root.minsize(560, 760)
         self.cfg = self.load_cfg()
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -71,7 +71,8 @@ class App:
             return {}
 
     def save_cfg(self):
-        cfg = {"folders": list(self.folders.get(0, "end")), "sd": self.sd.get(),
+        cfg = {"folders": list(self.folders.get(0, "end")), "games": list(self.games.get(0, "end")),
+               "sd": self.sd.get(),
                "quality": self.quality.get(), "fps": self.fps.get(), "audio": self.audio.get(),
                "prune": self.prune.get()}
         try:
@@ -88,15 +89,25 @@ class App:
         main.columnconfigure(0, weight=1)
 
         # 1. folders
-        f1 = ttk.LabelFrame(main, text="1. Video folders  (sub-folders become rows, show folders become pages)")
+        f1 = ttk.LabelFrame(main, text="1. Folders")
         f1.grid(row=0, column=0, sticky="nsew", **pad)
         f1.columnconfigure(0, weight=1)
-        self.folders = tk.Listbox(f1, height=5, activestyle="none", selectmode="extended")
-        self.folders.grid(row=0, column=0, rowspan=3, sticky="nsew", padx=(8, 4), pady=8)
+        ttk.Label(f1, text="Videos  (sub-folders become rows, show folders become pages)").grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 0))
+        self.folders = tk.Listbox(f1, height=4, activestyle="none", selectmode="extended")
+        self.folders.grid(row=1, column=0, rowspan=2, sticky="nsew", padx=(8, 4), pady=(2, 6))
         for f in self.cfg.get("folders", []):
             self.folders.insert("end", f)
-        ttk.Button(f1, text="Add folder…", command=self.add_folder).grid(row=0, column=1, sticky="ew", padx=8, pady=(8, 2))
-        ttk.Button(f1, text="Remove", command=self.remove_folder).grid(row=1, column=1, sticky="ew", padx=8, pady=2)
+        ttk.Button(f1, text="Add folder…", command=self.add_folder).grid(row=1, column=1, sticky="ew", padx=8, pady=(2, 2))
+        ttk.Button(f1, text="Remove", command=self.remove_folder).grid(row=2, column=1, sticky="new", padx=8, pady=2)
+        ttk.Label(f1, text="Games  (.nds files; folders already on the SD card are used in place)").grid(
+            row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 0))
+        self.games = tk.Listbox(f1, height=2, activestyle="none", selectmode="extended")
+        self.games.grid(row=4, column=0, rowspan=2, sticky="nsew", padx=(8, 4), pady=(2, 8))
+        for f in self.cfg.get("games", []):
+            self.games.insert("end", f)
+        ttk.Button(f1, text="Add folder…", command=self.add_games).grid(row=4, column=1, sticky="ew", padx=8, pady=(2, 2))
+        ttk.Button(f1, text="Remove", command=self.remove_games).grid(row=5, column=1, sticky="new", padx=8, pady=(2, 8))
 
         # 2. SD card
         f2 = ttk.LabelFrame(main, text="2. SD card (or any folder you'll copy to it)")
@@ -126,15 +137,17 @@ class App:
         f4 = ttk.LabelFrame(main, text="4. Kid settings  (saved to the SD card right away, no rebuild needed)")
         f4.grid(row=3, column=0, sticky="ew", **pad)
         self.kid = {k: tk.BooleanVar(value=v) for k, v in (("autoplay", True), ("lock_buttons", False),
-                                                           ("lock_touch", False), ("shuffle_tile", True))}
+                                                           ("lock_touch", False), ("shuffle_tile", True),
+                                                           ("show_games", True))}
         for row, (key, text) in enumerate((
                 ("autoplay", "Play the next episode automatically"),
                 ("lock_buttons", "Lock buttons while playing: only A (play/pause) works\n"
                                  "      grown-ups hold START + SELECT for 4 seconds to go back to the menu"),
                 ("lock_touch", "Lock the touchscreen while playing"),
-                ("shuffle_tile", "Show a Shuffle tile (plays random videos; random episodes inside a show)"))):
+                ("shuffle_tile", "Show a Shuffle tile (plays random videos; random episodes inside a show)"),
+                ("show_games", "Show games"))):
             ttk.Checkbutton(f4, text=text, variable=self.kid[key], command=self.save_kid).grid(
-                row=row, column=0, sticky="w", padx=8, pady=(6 if row == 0 else 2, 8 if row == 3 else 2))
+                row=row, column=0, sticky="w", padx=8, pady=(6 if row == 0 else 2, 8 if row == 4 else 2))
         self.sd.trace_add("write", lambda *_: self.load_kid())
         self.load_kid()
 
@@ -196,7 +209,8 @@ class App:
         try:
             self._reelds().write_settings(sd, **{k: v.get() for k, v in self.kid.items()})
             on = [n for k, n in (("autoplay", "autoplay"), ("lock_buttons", "buttons locked"),
-                                 ("lock_touch", "touch locked"), ("shuffle_tile", "shuffle tile"))
+                                 ("lock_touch", "touch locked"), ("shuffle_tile", "shuffle tile"),
+                                 ("show_games", "games shown"))
                   if self.kid[k].get()]
             self.status.set("Saved to the SD card: " + (", ".join(on) if on else "all kid settings off") + ".")
         except OSError as exc:
@@ -212,6 +226,17 @@ class App:
     def remove_folder(self):
         for i in reversed(self.folders.curselection()):
             self.folders.delete(i)
+        self.save_cfg()
+
+    def add_games(self):
+        d = filedialog.askdirectory(title="Choose a folder of .nds games")
+        if d and d not in self.games.get(0, "end"):
+            self.games.insert("end", d)
+            self.save_cfg()
+
+    def remove_games(self):
+        for i in reversed(self.games.curselection()):
+            self.games.delete(i)
         self.save_cfg()
 
     def pick_sd(self):
@@ -260,15 +285,18 @@ class App:
 
     def start_build(self):
         folders = list(self.folders.get(0, "end"))
+        games = list(self.games.get(0, "end"))
         sd = self.sd.get().strip()
-        if not folders:
-            messagebox.showinfo("ReelDS", "Add at least one folder of videos first.")
+        if not folders and not games:
+            messagebox.showinfo("ReelDS", "Add at least one folder of videos or games first.")
             return
         if not sd or not Path(sd).is_dir():
             messagebox.showinfo("ReelDS", "Choose the SD card (or an output folder) first.")
             return
         args = ["build", *folders, "--out", sd, "--quality", self.quality.get(),
                 "--fps", str(self.fps.get()), "--audio-rate", str(self.audio.get())]
+        if games:
+            args += ["--games", *games]
         if self.prune.get():
             args.append("--prune")
         if self.force.get():

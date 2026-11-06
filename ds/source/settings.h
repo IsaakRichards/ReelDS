@@ -9,6 +9,8 @@ typedef struct {
     bool lock_buttons;      // during playback only A works; hold START+SELECT 4 s to leave
     bool lock_touch;        // during playback the touchscreen is ignored
     bool shuffle_tile;      // show the Shuffle tile (random videos / random episodes of a show)
+    bool show_games;        // show the Games row(s)
+    char reelds_path[96];   // where reelds.nds is (a game's Quit comes back to it)
 } Settings;
 
 extern Settings g_settings;

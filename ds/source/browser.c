@@ -14,6 +14,7 @@
 #include "gfx.h"
 #include "player.h"
 #include "resume.h"
+#include "launch.h"
 #include "settings.h"
 
 #define MAX_ROWS   128
@@ -112,15 +113,25 @@ static void build_rows(int page)
             rows[n_rows++] = (UiRow){ &cat.cw_label, cw, cw_entries, 0, 0, 0 };
     }
     const CatPage *p = &cat.pages[page];
+    bool any_video = false;
     for (int r = 0; r < p->n_rows && n_rows < MAX_ROWS; r++) {
         const CatRow *cr = &cat.rows[p->first_row + r];
+        bool games_only = cr->count > 0, videos = false;
+        for (int k = 0; k < cr->count; k++) {
+            u16 e = cat.entries[cr->first + k];
+            if ((e & ENTRY_PAGE) || catalog_is_video(e))
+                games_only = false, videos = true;
+        }
+        if (games_only && !g_settings.show_games)
+            continue;
+        any_video |= videos;
         if (cr->count)
             rows[n_rows++] = (UiRow){ catalog_label(p->first_row + r), cr->count,
                                       &cat.entries[cr->first], 0, 0, 0 };
     }
 
     // "Can't decide?" row with the Shuffle tile, at the very top of the page
-    if (g_settings.shuffle_tile && cat.shuffle_tile.px && n_rows && n_rows < MAX_ROWS) {
+    if (g_settings.shuffle_tile && any_video && cat.shuffle_tile.px && n_rows && n_rows < MAX_ROWS) {
         memmove(&rows[1], &rows[0], n_rows * sizeof(UiRow));
         rows[0] = (UiRow){ &cat.shuffle_label, 1, shuffle_entry, 0, 0, 0 };
         n_rows++;
@@ -136,15 +147,16 @@ static void deck_build(int page)
     deck_page = page;
     if (!deck)
         return;
-    if (page == HOME_PAGE) {            // everything, including every show's episodes
+    if (page == HOME_PAGE) {            // every video, including every show's episodes
         for (int i = 0; i < cat.h.n_items; i++)
-            deck[deck_n++] = (u16)i;
+            if (catalog_is_video(i))
+                deck[deck_n++] = (u16)i;
     } else {                            // just this show
         const CatPage *p = &cat.pages[page];
         for (int r = 0; r < p->n_rows; r++) {
             const CatRow *cr = &cat.rows[p->first_row + r];
             for (int k = 0; k < cr->count; k++)
-                if (!(cat.entries[cr->first + k] & ENTRY_PAGE))
+                if (!(cat.entries[cr->first + k] & ENTRY_PAGE) && catalog_is_video(cat.entries[cr->first + k]))
                     deck[deck_n++] = cat.entries[cr->first + k];
         }
     }
@@ -330,12 +342,47 @@ static void go_back(void)
     show_page(c.page, c.entry, false);
 }
 
+// Shown when a game can't be started: a plain text screen until a button is pressed.
+static void show_message(const char *msg)
+{
+    setBrightness(3, 0);
+    videoSetModeSub(MODE_0_2D);
+    vramSetBankC(VRAM_C_SUB_BG);
+    consoleDemoInit();
+    printf("\x1b[2J\n  Couldn't start the game\n\n");
+    for (const char *p = msg; *p; p++) {
+        putchar(*p);
+        if (*p == '\n')
+            printf("  ");
+    }
+    printf("\n\n\n  Press any button.");
+    do {
+        swiWaitForVBlank();
+        scanKeys();
+    } while (!(keysDown() & (KEY_A | KEY_B | KEY_START | KEY_SELECT | KEY_TOUCH)));
+    gfx_init_browser_modes();
+    load_hero(cur_entry());
+    draw();
+}
+
+static void start_game(int item)
+{
+    fade(true);
+    const char *err = launch_game(item);    // only returns if something went wrong
+    fade(false);
+    show_message(err ? err : "Unknown error.");
+}
+
 // Plays the selected video, or random ones if the Shuffle tile is selected. With autoplay
 // on, the next episode (or the next random pick) follows when one ends by itself.
 static void play_selected(void)
 {
     u16 sel = cur_entry();
     bool shuffle = sel == ENTRY_SHUFFLE;
+    if (!shuffle && !catalog_is_video(sel)) {
+        start_game(sel);
+        return;
+    }
     int item = shuffle ? deck_next(-1) : sel;
     if (item < 0)
         return;

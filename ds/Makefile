@@ -15,7 +15,8 @@ GAME_ICON       := icon.bmp
 SOURCEDIRS      := source
 INCLUDEDIRS     := source
 GFXDIRS         :=
-BINDIRS         :=
+# data/ holds load.bin + bootstub.bin for starting games (see third_party/README.md)
+BINDIRS         := data
 AUDIODIRS       :=
 NITROFSDIR      :=
 

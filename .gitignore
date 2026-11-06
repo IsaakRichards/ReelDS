@@ -4,3 +4,4 @@ ds/*.elf
 __pycache__/
 *.pyc
 .runtime/
+ds/data/

@@ -6,7 +6,7 @@
 _Static_assert(sizeof(CatHeader) == 60, "CatHeader layout");
 _Static_assert(sizeof(CatPage) == 20, "CatPage layout");
 _Static_assert(sizeof(CatRow) == 8, "CatRow layout");
-_Static_assert(sizeof(CatItem) == 40, "CatItem layout");
+_Static_assert(sizeof(CatItem) == 52, "CatItem layout");
 
 #define MAX_TILES_LOADED 400    // ~2.3 MB of tiles before we drop the cache
 
@@ -168,22 +168,40 @@ int catalog_next_item(int item)
             for (int k = 0; k < row->count; k++) {
                 if (cat.entries[row->first + k] != item)
                     continue;
-                for (int j = k + 1; j < row->count; j++)
-                    if (!(cat.entries[row->first + j] & ENTRY_PAGE))
-                        return cat.entries[row->first + j];
+                for (int j = k + 1; j < row->count; j++) {
+                    u16 e = cat.entries[row->first + j];
+                    if (!(e & ENTRY_PAGE) && catalog_is_video(e))
+                        return e;
+                }
                 if (p == HOME_PAGE)
                     return -1;          // films / folders: stop at the end of the row
                 for (int rr = r + 1; rr < pg->n_rows; rr++) {
                     const CatRow *nr = &cat.rows[pg->first_row + rr];
-                    for (int j = 0; j < nr->count; j++)
-                        if (!(cat.entries[nr->first + j] & ENTRY_PAGE))
-                            return cat.entries[nr->first + j];
+                    for (int j = 0; j < nr->count; j++) {
+                        u16 e = cat.entries[nr->first + j];
+                        if (!(e & ENTRY_PAGE) && catalog_is_video(e))
+                            return e;
+                    }
                 }
                 return -1;
             }
         }
     }
     return -1;
+}
+
+bool catalog_is_video(int item)
+{
+    return cat.items[item].kind == ITEM_VIDEO;
+}
+
+bool catalog_item_path(int item, char *buf, size_t len)
+{
+    if (!cat.items[item].path_off || len < 8 || fseek(cat.f, (long)cat.items[item].path_off, SEEK_SET))
+        return false;
+    size_t n = fread(buf, 1, len - 1, cat.f);
+    buf[n] = 0;
+    return memchr(buf, 0, n) != NULL || n < len - 1;
 }
 
 u32 item_key(int item)
