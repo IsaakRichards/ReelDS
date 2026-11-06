@@ -130,7 +130,7 @@ static bool ensure_save(const char *sav, u32 size)
     u32 have = stat(sav, &st) == 0 ? (u32)st.st_size : 0;
     if (have >= size)
         return true;
-    char dir[160];
+    char dir[192];
     snprintf(dir, sizeof dir, "%s", sav);
     char *s = strrchr(dir, '/');
     if (s) {
@@ -156,7 +156,7 @@ static bool ensure_save(const char *sav, u32 size)
 
 typedef struct {
     const char *key;
-    char value[160];
+    char value[192];
 } IniKey;
 
 static bool is_our_key(const char *line, const IniKey *keys, int nkeys)
