@@ -1044,6 +1044,52 @@ def scan_games(roots, sd_root: Path):
     return out
 
 
+def order_rows(names, wanted=None, default_key=natural_key):
+    """Home-page row order: rows named in `wanted` first, in that order; the rest after them
+    in the default order."""
+    wanted = [w for w in (wanted or []) if w in names]
+    rest = sorted((n for n in names if n not in wanted), key=default_key)
+    return wanted + rest
+
+
+def game_row_names(roots):
+    """Row names game folders produce ("Games", or the sub-folder), without copying anything."""
+    names = set()
+    for root in roots:
+        root = Path(root).resolve()
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            if (p.suffix.lower() in G.GAME_EXTS and p.is_file() and not p.name.startswith(".")
+                    and "reelds" not in p.name.lower() and "saves" not in p.relative_to(root).parts[:-1]):
+                rel = p.parent.relative_to(root).as_posix()
+                names.add("Games" if rel in ("", ".") else rel.replace("/", " - "))
+    return names
+
+
+def home_row_names(library, games=()):
+    """The home-page rows a build of these folders would produce, in default order, without
+    encoding anything (used by the GUI's "Arrange rows" window). Game rows come last."""
+    files = scan_library(library)
+    shows = find_series(files)
+    names = set()
+    for root, p in files:
+        show = shows[p]
+        if show is None:
+            cat = row_name(p.parent, root)
+            side_cat = read_sidecar(p).get("category")
+            names.add(side_cat or cat)
+        else:
+            names.add(row_name(show.parent, root) if show != root else root.name)
+    g = game_row_names(games)
+    return order_rows(names | g, default_key=lambda c: (c in g and c not in names, natural_key(c)))
+
+
+def cmd_rows(a):
+    for n in home_row_names(a.library, getattr(a, "games", None) or []):
+        print(n)
+
+
 def cmd_build(a):
     need_tools()
     out_root = Path(a.out).resolve() / "reelds"
@@ -1136,7 +1182,7 @@ def cmd_build(a):
             art_p = cache / f"{e['id']}.png"
         e["art"] = Image.open(art_p).convert("RGB")
 
-    pages = build_pages(entries + game_entries)
+    pages = build_pages(entries + game_entries, a.row_order)
     write_catalog(out_root / "catalog.bin", pages, fonts)
     onoff = lambda v: None if v is None else v == "on"
     cfg = write_settings(a.out, autoplay=onoff(a.autoplay), lock_buttons=onoff(a.lock_buttons),
@@ -1168,7 +1214,7 @@ def cmd_build(a):
         f"{len(game_entries)} game(s), {total / 2**20:.0f} MB in {vid_dir}")
 
 
-def build_pages(entries):
+def build_pages(entries, row_order=None):
     """Page 0 is the home screen; every show gets its own page with one row per season."""
     shows = {}
     for e in entries:
@@ -1216,7 +1262,8 @@ def build_pages(entries):
             e["meta_prefix"] = "" if e["season"] == "Episodes" else e["season"]
     game_rows = {e["category"] for e in entries if e.get("kind", 0) != G.KIND_VIDEO}
     pages[0] = {"title": None, "rows": [(c, [x for _, x in sorted(home[c], key=lambda t: t[0])])
-                                        for c in sorted(home, key=lambda c: (c in game_rows, natural_key(c)))]}
+                                        for c in order_rows(home, row_order,
+                                                            lambda c: (c in game_rows, natural_key(c)))]}
     return pages
 
 
@@ -1484,7 +1531,7 @@ def cmd_selftest(a):
                                 keyint=5.0, jobs=1, font=None, font_bold=None, no_audio_boost=False,
                                 no_deinterlace=False, force=False, prune=False, autoplay=None,
                                 lock_buttons=None, lock_touch=None, shuffle=None, games=None,
-                                show_games=None)
+                                show_games=None, row_order=None)
         cmd_build(ns)
         vids = list((td / "sd" / "reelds" / "videos").glob("*.rdv"))
         n = sum(1 for _ in iter_decoded(vids[0]))
@@ -1523,6 +1570,8 @@ def main():
     b.add_argument("--lock-touch", choices=("on", "off"), help="touchscreen ignored during playback")
     b.add_argument("--shuffle", choices=("on", "off"), help="show the Shuffle tile (default on)")
     b.add_argument("--show-games", choices=("on", "off"), help="show the Games row(s) (default on)")
+    b.add_argument("--row-order", nargs="+", metavar="ROW",
+                   help="home-page rows to put first, in this order (others follow A-Z)")
     b.set_defaults(func=cmd_build)
 
     p = sub.add_parser("preview", help="render an .rdv to mp4 exactly as the DSi decodes it")
@@ -1543,6 +1592,11 @@ def main():
     mk.add_argument("--col", type=int, default=0)
     mk.add_argument("--scale", type=int, default=2)
     mk.set_defaults(func=cmd_mock)
+
+    rw = sub.add_parser("rows", help="list the home-page rows a build of these folders would have")
+    rw.add_argument("library", nargs="*")
+    rw.add_argument("--games", nargs="+", metavar="FOLDER")
+    rw.set_defaults(func=cmd_rows)
 
     g = sub.add_parser("gui", help="open the desktop app (default when run with no arguments)")
     g.set_defaults(func=lambda _a: __import__("gui").main())

@@ -24,6 +24,9 @@ which OS/CPU you're on and unpacks the matching set into `.runtime/` the first t
 `./reelds.sh` with no arguments (Linux).** That opens a small window: add your video folders,
 pick the SD card, press **Build SD card**. It shows progress, remembers your folders, and
 **Preview DSi menu** shows exactly what the DSi's screens will look like (home + every show).
+**Arrange rows…** sets the order of the home-screen rows (e.g. Shows before Movies); it's applied
+on the next Build, which is quick because nothing is re-encoded. From a terminal:
+`build … --row-order Shows Movies` (rows not listed follow A–Z; `reelds rows <folders>` lists them).
 
 Or from a terminal:
 
