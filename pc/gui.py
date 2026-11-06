@@ -199,7 +199,8 @@ class App:
         sd = self.sd.get().strip()
         if sd and Path(sd).is_dir():
             for k, v in self._reelds().read_settings(sd).items():
-                self.kid[k].set(v)
+                if k in self.kid:           # skip non-checkbox entries such as reelds_path
+                    self.kid[k].set(v)
 
     def save_kid(self):
         sd = self.sd.get().strip()
