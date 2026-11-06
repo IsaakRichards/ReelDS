@@ -8,7 +8,12 @@ each under its own license.
 
 | Component | License | Source |
 |---|---|---|
-| [BlocksDS](https://github.com/blocksds/sdk) runtime (libnds, crt0, ARM7 core) linked into the app | zlib / MIT-style (see the BlocksDS `licenses/` folder) | https://github.com/blocksds/sdk |
+| libnds (BlocksDS) | Zlib | https://github.com/blocksds/libnds |
+| FatFs (SD card file system, inside libnds) | FatFs license (BSD-style, 1-clause) | http://elm-chan.org/fsw/ff/ |
+| BlocksDS startup code and linker scripts (`sys/crts`) | MPL-2.0 | https://github.com/blocksds/sdk/tree/master/sys/crts |
+| BlocksDS default ARM7 core (`arm7_maxmod.elf`) | Zlib-style | https://github.com/blocksds/sdk/tree/master/sys/arm7/main_core |
+| Maxmod (linked into the ARM7 core) | ISC | https://github.com/blocksds/maxmod |
+| picolibc (C library) | BSD-3-Clause and similar permissive licenses | https://github.com/picolibc/picolibc |
 
 ## PC encoder
 
