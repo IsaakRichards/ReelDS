@@ -59,6 +59,7 @@ class App:
         root.title("ReelDS")
         root.minsize(560, 670)
         self.cfg = self.load_cfg()
+        self.row_order = list(self.cfg.get("row_order", []))
         self.build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(100, self.pump)
@@ -72,6 +73,7 @@ class App:
 
     def save_cfg(self):
         cfg = {"folders": list(self.folders.get(0, "end")), "sd": self.sd.get(),
+               "row_order": self.row_order,
                "quality": self.quality.get(), "fps": self.fps.get(), "audio": self.audio.get(),
                "prune": self.prune.get()}
         try:
@@ -149,6 +151,7 @@ class App:
         self.preview_btn.pack(side="right")
         self.test_btn = ttk.Button(bar, text="Check setup", command=self.start_selftest)
         self.test_btn.pack(side="right", padx=6)
+        ttk.Button(bar, text="Arrange rows…", command=self.arrange_rows).pack(side="right")
 
         # progress + log
         self.progress = ttk.Progressbar(main, mode="determinate", maximum=100)
@@ -269,6 +272,8 @@ class App:
             return
         args = ["build", *folders, "--out", sd, "--quality", self.quality.get(),
                 "--fps", str(self.fps.get()), "--audio-rate", str(self.audio.get())]
+        if self.row_order:
+            args += ["--row-order", *self.row_order]
         if self.prune.get():
             args.append("--prune")
         if self.force.get():
@@ -351,6 +356,90 @@ class App:
                 self.refresh_preview()
         else:
             self.status.set("Cancelled." if self.cancelled else f"Failed (exit code {rc}) - see the log.")
+
+    # ---------------------------------------------------------------- row order
+    def arrange_rows(self):
+        folders = list(self.folders.get(0, "end"))
+        if not folders:
+            messagebox.showinfo("ReelDS", "Add your folders first - the rows come from them.")
+            return
+        self.status.set("Looking at your folders…")
+        self.root.update_idletasks()
+        try:
+            r = self._reelds()
+            order = r.order_rows(r.home_row_names(folders), self.row_order)
+        except Exception as exc:
+            messagebox.showerror("ReelDS", f"Couldn't read the folders:\n{exc}")
+            return
+        finally:
+            self.status.set("Ready.")
+        if not order:
+            messagebox.showinfo("ReelDS", "No videos found in those folders yet.")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Arrange menu rows")
+        win.transient(self.root)
+        win.resizable(False, True)
+        frm = ttk.Frame(win, padding=10)
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(0, weight=1)
+        frm.rowconfigure(1, weight=1)
+        ttk.Label(frm, text="Order of the rows on the DSi's home screen (top to bottom):").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        lb = tk.Listbox(frm, height=min(14, max(6, len(order))), width=36, activestyle="none",
+                        exportselection=False)
+        lb.grid(row=1, column=0, sticky="nsew", pady=6)
+        for n in order:
+            lb.insert("end", n)
+        lb.selection_set(0)
+
+        def move(to):
+            sel = lb.curselection()
+            if not sel:
+                return
+            i = sel[0]
+            j = {"up": i - 1, "down": i + 1, "top": 0, "bottom": lb.size() - 1}[to]
+            if j < 0 or j >= lb.size() or j == i:
+                return
+            name = lb.get(i)
+            lb.delete(i)
+            lb.insert(j, name)
+            lb.selection_clear(0, "end")
+            lb.selection_set(j)
+            lb.see(j)
+
+        def reset():
+            names = sorted(lb.get(0, "end"), key=self._reelds().natural_key)
+            lb.delete(0, "end")
+            for n in names:
+                lb.insert("end", n)
+            lb.selection_set(0)
+
+        def save():
+            self.row_order = list(lb.get(0, "end"))
+            self.save_cfg()
+            self.status.set("Row order saved - press Build SD card to update the menu "
+                            "(quick: nothing is re-encoded).")
+            win.destroy()
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=1, column=1, sticky="n", padx=(8, 0), pady=6)
+        for text, cmd in (("Move up", lambda: move("up")), ("Move down", lambda: move("down")),
+                          ("To top", lambda: move("top")), ("To bottom", lambda: move("bottom")),
+                          ("Reset A-Z", reset)):
+            ttk.Button(btns, text=text, command=cmd).pack(fill="x", pady=2)
+        ttk.Label(frm, foreground="#666", wraplength=330, justify="left",
+                  text="\"Can't decide?\" (Shuffle) and Continue Watching always stay at the top. "
+                       "New folders you add later go to the bottom until you move them.").grid(
+            row=2, column=0, columnspan=2, sticky="w")
+        ok = ttk.Frame(frm)
+        ok.grid(row=3, column=0, columnspan=2, sticky="e", pady=(10, 0))
+        ttk.Button(ok, text="Cancel", command=win.destroy).pack(side="right")
+        ttk.Button(ok, text="Save", command=save).pack(side="right", padx=6)
+        lb.bind("<Alt-Up>", lambda _e: move("up"))
+        lb.bind("<Alt-Down>", lambda _e: move("down"))
+        win.grab_set()
 
     # ---------------------------------------------------------------- DSi menu preview
     def catalog_file(self) -> Path:
